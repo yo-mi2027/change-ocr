@@ -1,0 +1,5 @@
+{
+  "name": "PDF/PNG/JPEG loading",
+  "description": "A powerful PDF analysis tool powered by Google Gemini models.",
+  "requestFramePermissions": []
+}
