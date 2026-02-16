@@ -1,13 +1,10 @@
 import React from 'react';
 import { Settings, Sparkles } from 'lucide-react';
-import { AUTO_OPTIMIZER_LABEL } from '../constants';
 
 interface ConfigPanelProps {
   onAnalyze: () => void;
   isAnalyzing: boolean;
   hasFile: boolean;
-  autoStatus: string;
-  fixedPromptSummary: string;
   metrics?: {
     profileTransitions: number;
     escalations: number;
@@ -23,8 +20,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
   onAnalyze,
   isAnalyzing,
   hasFile,
-  autoStatus,
-  fixedPromptSummary,
   metrics
 }) => {
   return (
@@ -35,30 +30,6 @@ export const ConfigPanel: React.FC<ConfigPanelProps> = ({
       </div>
 
       <div className="space-y-6 flex-grow">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            Optimization Strategy
-          </label>
-          <div className="rounded-lg border border-blue-200 bg-blue-50/70 p-3">
-            <p className="text-sm font-semibold text-blue-800">{AUTO_OPTIMIZER_LABEL}</p>
-            <p className="text-xs text-blue-700 mt-1">
-              The system automatically balances OCR fidelity and token usage by escalating only when needed.
-            </p>
-            <p className="text-xs text-slate-700 mt-3 bg-white/70 border border-blue-100 rounded-md px-2 py-1">
-              {autoStatus}
-            </p>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-2">
-            OCR Prompt Policy
-          </label>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 leading-relaxed">
-            {fixedPromptSummary}
-          </div>
-        </div>
-
         {metrics && (
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">

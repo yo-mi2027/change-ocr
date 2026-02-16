@@ -24,7 +24,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/12X3m5Eb8lvRcHSDhoqxlTc
 The app now uses an automatic Pareto optimizer for OCR quality vs token usage.
 
 - Starts from low-cost profile and escalates only when quality signals are weak.
-- Uses image chunking + carry-over context for multi-page image sequences.
+- Processes image sequences one image per request, while preserving carry-over context between pages.
 - Applies lightweight preprocessing (resize + contrast) before image OCR.
 - Caches previous OCR results in local storage to avoid repeated token usage.
 - Uses fixed prompts per mode (PDF / Image Sequence) for reproducibility and stable token usage.

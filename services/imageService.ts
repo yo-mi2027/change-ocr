@@ -1,7 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import {
   MAX_CONCURRENT_REQUESTS,
-  MAX_ESCALATION_SPAN_PAGES,
   OCR_CACHE_SCHEMA_VERSION,
   OCR_CACHE_TTL_MS,
   OCR_OUTPUT_CONTRACT,
@@ -383,6 +382,7 @@ const buildImagePrompt = (
   return [
     OCR_OUTPUT_CONTRACT,
     `Current page range: ${startPage}-${endPage} of ${totalPages}.`,
+    `For this page range, every page must begin with an exact heading: "## pageN" using the absolute page number in the full document.`,
     profileHint,
     contextBlock,
     `User instruction:\n${userInstruction}`
@@ -431,11 +431,7 @@ const resolveSpanWithEscalation = async (
   onEvent?: AnalysisEventHandler
 ): Promise<SpanResolution> => {
   const totalPages = images.length;
-  const initialProfile = candidateProfiles[0] ?? 'economy';
-  const baseChunkSize = Math.min(
-    MAX_ESCALATION_SPAN_PAGES,
-    OCR_PROFILE_POLICIES[initialProfile].imageChunkSize
-  );
+  const baseChunkSize = 1;
   const span = images.slice(startIndex, startIndex + baseChunkSize);
 
   if (span.length === 0) {

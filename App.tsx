@@ -270,12 +270,6 @@ const App: React.FC = () => {
                 onAnalyze={mode === 'pdf' ? handlePdfAnalyze : handleImageSequenceAnalyze}
                 isAnalyzing={isAnalyzing}
                 hasFile={mode === 'pdf' ? !!selectedFile : images.length > 0}
-                autoStatus={autoStatus}
-                fixedPromptSummary={
-                  mode === 'pdf'
-                    ? 'Prompt is fixed for reproducible PDF OCR with stable token usage.'
-                    : 'Prompt is fixed for reproducible sequential-image OCR with stable token usage.'
-                }
                 metrics={runMetrics}
               />
             </div>

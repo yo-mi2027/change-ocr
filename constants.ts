@@ -39,6 +39,7 @@ export const OCR_PROFILE_POLICIES: Record<OptimizationProfile, OcrProfilePolicy>
 
 export const OCR_OUTPUT_CONTRACT = `Return Markdown only.
 - Keep original order and wording. Do not summarize.
+- Add a heading at the start of each page: "## pageN" (N starts from 1).
 - Preserve headings, lists, formulas, and table structures.
 - If a character is unreadable, keep it as □.
 - For figures/diagrams, add [FIGURE] then transcribe visible text and short structural notes.
@@ -46,11 +47,13 @@ export const OCR_OUTPUT_CONTRACT = `Return Markdown only.
 
 export const INITIAL_PROMPT = `Transcribe the attached PDF as-is.
 - Keep line and section order.
+- Add page headings in this exact format: "## page1", "## page2", ...
 - Correct obvious OCR split-word artifacts only.
 - Do not add explanations outside the transcription output.`;
 
 export const INITIAL_IMAGE_PROMPT = `Transcribe these ordered images as a single document.
 - Keep page sequence strict.
+- Treat each image as one page and add headings in this exact format: "## page1", "## page2", ...
 - Preserve wording and structure verbatim.
 - Do not add explanations outside the transcription output.`;
 
@@ -63,5 +66,4 @@ export const OCR_POLICY_FINGERPRINT_VERSION = '2026-02-07';
 export const OUTPUT_STREAM_CHUNK_SIZE = 1400;
 
 export const MAX_CONCURRENT_REQUESTS = 5;
-export const MAX_ESCALATION_SPAN_PAGES = 5;
 export const QUALITY_VERIFIER_SAMPLE_CHARS = 2200;
