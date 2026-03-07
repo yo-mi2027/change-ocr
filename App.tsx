@@ -3,32 +3,11 @@ import { Bot, FileText, Image as ImageIcon, Sparkles, Trash2, AlertCircle, Downl
 import { FileUploader } from './components/FileUploader';
 import { ImageUploader } from './components/ImageUploader';
 import { ImageGrid } from './components/ImageGrid';
-import { ConfigPanel } from './components/ConfigPanel';
 import { MarkdownViewer } from './components/MarkdownViewer';
 import { analyzePdfStream } from './services/geminiService';
 import { analyzeImageSequenceStream } from './services/imageService';
-import { APP_TITLE, AUTO_OPTIMIZER_LABEL, INITIAL_PROMPT, INITIAL_IMAGE_PROMPT } from './constants';
-import { AnalysisEvent, PdfFile, AppMode, ImageFile } from './types';
-
-interface RunMetrics {
-  profileTransitions: number;
-  escalations: number;
-  cacheHits: number;
-  estimatedInputTokens: number;
-  estimatedOutputTokens: number;
-  lastQualityScore?: number;
-  lastVerificationScore?: number;
-}
-
-const INITIAL_METRICS: RunMetrics = {
-  profileTransitions: 0,
-  escalations: 0,
-  cacheHits: 0,
-  estimatedInputTokens: 0,
-  estimatedOutputTokens: 0
-};
-
-const createInitialMetrics = (): RunMetrics => ({ ...INITIAL_METRICS });
+import { APP_TITLE, INITIAL_PROMPT, INITIAL_IMAGE_PROMPT } from './constants';
+import { PdfFile, AppMode, ImageFile, ModelType } from './types';
 
 const App: React.FC = () => {
   // Mode State
@@ -38,8 +17,6 @@ const App: React.FC = () => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<string>('');
-  const [autoStatus, setAutoStatus] = useState(`${AUTO_OPTIMIZER_LABEL} is ready.`);
-  const [runMetrics, setRunMetrics] = useState<RunMetrics>(createInitialMetrics);
 
   // PDF State
   const [selectedFile, setSelectedFile] = useState<PdfFile | null>(null);
@@ -52,16 +29,12 @@ const App: React.FC = () => {
     setSelectedFile(file);
     setError(null);
     setResult('');
-    setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for PDF.`);
-    setRunMetrics(createInitialMetrics());
   };
 
   const handleClearFile = () => {
     setSelectedFile(null);
     setResult('');
     setError(null);
-    setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for PDF.`);
-    setRunMetrics(createInitialMetrics());
   };
 
   const handlePdfAnalyze = async () => {
@@ -69,29 +42,12 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
     setError(null);
     setResult('');
-    setAutoStatus('Auto optimizer is evaluating PDF input...');
-    setRunMetrics(createInitialMetrics());
-
-    const onEvent = (event: AnalysisEvent) => {
-      const score = typeof event.qualityScore === 'number' ? ` (score: ${event.qualityScore.toFixed(2)})` : '';
-      setAutoStatus(`${event.message}${score}`);
-      setRunMetrics(prev => ({
-        profileTransitions: prev.profileTransitions + (event.type === 'profile-start' ? 1 : 0),
-        escalations: prev.escalations + (event.type === 'profile-escalated' ? 1 : 0),
-        cacheHits: prev.cacheHits + (event.type === 'cache-hit' ? 1 : 0),
-        estimatedInputTokens: Math.max(prev.estimatedInputTokens, event.estimatedInputTokens ?? 0),
-        estimatedOutputTokens: Math.max(prev.estimatedOutputTokens, event.estimatedOutputTokens ?? 0),
-        lastQualityScore: typeof event.qualityScore === 'number' ? event.qualityScore : prev.lastQualityScore,
-        lastVerificationScore: typeof event.verificationScore === 'number' ? event.verificationScore : prev.lastVerificationScore
-      }));
-    };
     
     try {
       const streamResponse = await analyzePdfStream(
         selectedFile.base64,
         INITIAL_PROMPT,
-        undefined,
-        onEvent
+        ModelType.FLASH
       );
       
       for await (const chunk of streamResponse) {
@@ -115,16 +71,12 @@ const App: React.FC = () => {
     });
     setError(null);
     setResult('');
-    setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for image sequence.`);
-    setRunMetrics(createInitialMetrics());
   };
 
   const handleClearImages = () => {
     setImages([]);
     setResult('');
     setError(null);
-    setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for image sequence.`);
-    setRunMetrics(createInitialMetrics());
   };
 
   const handleImageSequenceAnalyze = async () => {
@@ -132,29 +84,12 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
     setError(null);
     setResult('');
-    setAutoStatus('Auto optimizer is evaluating image sequence...');
-    setRunMetrics(createInitialMetrics());
-
-    const onEvent = (event: AnalysisEvent) => {
-      const score = typeof event.qualityScore === 'number' ? ` (score: ${event.qualityScore.toFixed(2)})` : '';
-      setAutoStatus(`${event.message}${score}`);
-      setRunMetrics(prev => ({
-        profileTransitions: prev.profileTransitions + (event.type === 'profile-start' ? 1 : 0),
-        escalations: prev.escalations + (event.type === 'profile-escalated' ? 1 : 0),
-        cacheHits: prev.cacheHits + (event.type === 'cache-hit' ? 1 : 0),
-        estimatedInputTokens: Math.max(prev.estimatedInputTokens, event.estimatedInputTokens ?? 0),
-        estimatedOutputTokens: Math.max(prev.estimatedOutputTokens, event.estimatedOutputTokens ?? 0),
-        lastQualityScore: typeof event.qualityScore === 'number' ? event.qualityScore : prev.lastQualityScore,
-        lastVerificationScore: typeof event.verificationScore === 'number' ? event.verificationScore : prev.lastVerificationScore
-      }));
-    };
 
     try {
       const streamResponse = await analyzeImageSequenceStream(
         images,
         INITIAL_IMAGE_PROMPT,
-        undefined,
-        onEvent
+        ModelType.FLASH
       );
 
       for await (const chunk of streamResponse) {
@@ -198,7 +133,7 @@ const App: React.FC = () => {
             {/* Mode Switcher */}
             <div className="flex bg-slate-100 p-1 rounded-lg">
               <button
-                onClick={() => { setMode('pdf'); setError(null); setResult(''); setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for PDF.`); setRunMetrics(createInitialMetrics()); }}
+                onClick={() => { setMode('pdf'); setError(null); setResult(''); }}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                   mode === 'pdf' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
@@ -206,7 +141,7 @@ const App: React.FC = () => {
                 PDF Document
               </button>
               <button
-                onClick={() => { setMode('batch-image'); setError(null); setResult(''); setAutoStatus(`${AUTO_OPTIMIZER_LABEL} is ready for image sequence.`); setRunMetrics(createInitialMetrics()); }}
+                onClick={() => { setMode('batch-image'); setError(null); setResult(''); }}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
                   mode === 'batch-image' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
@@ -265,13 +200,30 @@ const App: React.FC = () => {
               )}
             </div>
 
-            <div className="flex-grow">
-              <ConfigPanel
-                onAnalyze={mode === 'pdf' ? handlePdfAnalyze : handleImageSequenceAnalyze}
-                isAnalyzing={isAnalyzing}
-                hasFile={mode === 'pdf' ? !!selectedFile : images.length > 0}
-                metrics={runMetrics}
-              />
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+              <button
+                onClick={mode === 'pdf' ? handlePdfAnalyze : handleImageSequenceAnalyze}
+                disabled={(mode === 'pdf' ? !selectedFile : images.length === 0) || isAnalyzing}
+                className={`
+                  w-full py-3 px-4 rounded-lg flex items-center justify-center gap-2 font-medium text-white transition-all
+                  ${(mode === 'pdf' ? !selectedFile : images.length === 0) || isAnalyzing
+                    ? 'bg-slate-300 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 shadow-lg shadow-blue-500/20 active:scale-[0.98]'
+                  }
+                `}
+              >
+                {isAnalyzing ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Analyzing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5" />
+                    <span>Analyze Document</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 

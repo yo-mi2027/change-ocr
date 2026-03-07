@@ -14,6 +14,11 @@ import { AnalysisEvent, ImageFile, ModelType, OptimizationProfile, QualityAssess
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 const IMAGE_CACHE_PREFIX = `ocr-cache:image:${OCR_CACHE_SCHEMA_VERSION}`;
+const INPUT_IMAGE_MAX_DIMENSION = 1200;
+const INPUT_IMAGE_JPEG_QUALITY = 0.72;
+const IMAGE_FLASH_CHUNK_SIZE = 3;
+const IMAGE_DEFAULT_CHUNK_SIZE = 1;
+const RATE_LIMIT_RETRY_DELAYS_MS = [1200, 2500, 5000];
 
 type AnalysisEventHandler = (event: AnalysisEvent) => void;
 
@@ -75,7 +80,7 @@ const sha256Hex = async (input: string): Promise<string> => {
 
 const resolveImageCandidateProfiles = (modelOverride?: ModelType): OptimizationProfile[] => {
   if (modelOverride === ModelType.PRO) return ['accuracy'];
-  if (modelOverride === ModelType.FLASH) return ['economy', 'balanced'];
+  if (modelOverride === ModelType.FLASH) return ['economy'];
   return OCR_PROFILE_ORDER;
 };
 
@@ -248,12 +253,47 @@ const loadImageElement = (src: string): Promise<HTMLImageElement> => {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error('Failed to load image for preprocessing.'));
+    img.onerror = () => reject(new Error('Failed to load image.'));
     img.src = src;
   });
 };
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
+
+const compressInputImage = async (dataUrl: string): Promise<{ preview: string; base64: string }> => {
+  const img = await loadImageElement(dataUrl);
+  const originalWidth = img.naturalWidth || img.width;
+  const originalHeight = img.naturalHeight || img.height;
+  const maxDimension = Math.max(originalWidth, originalHeight);
+  const scale = maxDimension > INPUT_IMAGE_MAX_DIMENSION
+    ? INPUT_IMAGE_MAX_DIMENSION / maxDimension
+    : 1;
+
+  const targetWidth = Math.max(1, Math.round(originalWidth * scale));
+  const targetHeight = Math.max(1, Math.round(originalHeight * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    return {
+      preview: dataUrl,
+      base64: dataUrl.split(',')[1] || ''
+    };
+  }
+
+  // JPEG conversion removes alpha; paint white backdrop to keep text contrast stable.
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetWidth, targetHeight);
+  ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+  const compressedPreview = canvas.toDataURL('image/jpeg', INPUT_IMAGE_JPEG_QUALITY);
+  return {
+    preview: compressedPreview,
+    base64: compressedPreview.split(',')[1] || ''
+  };
+};
 
 const preprocessImageForProfile = async (
   image: ImageFile,
@@ -417,6 +457,46 @@ const runSpanAttempt = async (
   return text;
 };
 
+const sleep = (ms: number): Promise<void> => new Promise(resolve => {
+  setTimeout(resolve, ms);
+});
+
+const isRateLimitError = (error: unknown): boolean => {
+  const message = error instanceof Error
+    ? error.message
+    : (() => {
+        try {
+          return JSON.stringify(error);
+        } catch {
+          return String(error ?? '');
+        }
+      })();
+  const normalized = message.toLowerCase();
+  return normalized.includes('429')
+    || normalized.includes('resource_exhausted')
+    || normalized.includes('rate limit')
+    || normalized.includes('quota');
+};
+
+const runSpanAttemptWithRetry = async (
+  preparedImages: PreparedImagePart[],
+  prompt: string,
+  profile: OptimizationProfile,
+  modelOverride?: ModelType
+): Promise<string> => {
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await runSpanAttempt(preparedImages, prompt, profile, modelOverride);
+    } catch (error) {
+      const shouldRetry = isRateLimitError(error) && attempt < RATE_LIMIT_RETRY_DELAYS_MS.length;
+      if (!shouldRetry) throw error;
+      await sleep(RATE_LIMIT_RETRY_DELAYS_MS[attempt]);
+    }
+  }
+
+  throw new Error('Image sequence analysis failed unexpectedly.');
+};
+
 const maxProfile = (current: OptimizationProfile, next: OptimizationProfile): OptimizationProfile => {
   return OCR_PROFILE_ORDER.indexOf(next) > OCR_PROFILE_ORDER.indexOf(current) ? next : current;
 };
@@ -431,7 +511,7 @@ const resolveSpanWithEscalation = async (
   onEvent?: AnalysisEventHandler
 ): Promise<SpanResolution> => {
   const totalPages = images.length;
-  const baseChunkSize = 1;
+  const baseChunkSize = modelOverride === ModelType.FLASH ? IMAGE_FLASH_CHUNK_SIZE : IMAGE_DEFAULT_CHUNK_SIZE;
   const span = images.slice(startIndex, startIndex + baseChunkSize);
 
   if (span.length === 0) {
@@ -458,10 +538,10 @@ const resolveSpanWithEscalation = async (
       const prepared = await preprocessSpan(span, profile);
       const estimatedImageTokens = prepared.reduce((sum, img) => sum + estimateInlineDataTokens(img.data), 0);
       const estimatedInputTokens = estimatedImageTokens + estimatedPromptTokens;
-      const text = await runSpanAttempt(prepared, composedPrompt, profile, modelOverride);
+      const text = await runSpanAttemptWithRetry(prepared, composedPrompt, profile, modelOverride);
       const assessment = evaluateQuality(text);
       const requiredScore = OCR_PROFILE_POLICIES[profile].minQualityScore;
-      const needsVerifier = assessment.score < (requiredScore + 0.1);
+      const needsVerifier = modelOverride !== ModelType.FLASH && assessment.score < (requiredScore + 0.1);
       const verifierScore = needsVerifier ? await runQualityVerifier(text, profile, modelOverride) : null;
       const qualityScore = verifierScore === null
         ? assessment.score
@@ -504,6 +584,10 @@ const resolveSpanWithEscalation = async (
         verificationScore: verifierScore === null ? undefined : verifierScore
       });
     } catch (error) {
+      if (isRateLimitError(error)) {
+        throw new Error('Image sequence analysis failed: rate limit exceeded. Please wait and retry in a minute.');
+      }
+
       if (isLastProfile) {
         if (error instanceof Error) {
           throw new Error(`Image sequence analysis failed: ${error.message}`);
@@ -525,13 +609,25 @@ const resolveSpanWithEscalation = async (
 export const readImageFile = (file: File): Promise<ImageFile> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       if (typeof reader.result === 'string') {
+        const originalDataUrl = reader.result;
+        let normalizedPreview = originalDataUrl;
+        let normalizedBase64 = originalDataUrl.split(',')[1] || '';
+
+        try {
+          const compressed = await compressInputImage(originalDataUrl);
+          normalizedPreview = compressed.preview;
+          normalizedBase64 = compressed.base64;
+        } catch {
+          // Fallback to original payload when compression fails.
+        }
+
         resolve({
           id: Math.random().toString(36).substring(7),
           file,
-          preview: reader.result,
-          base64: reader.result.split(',')[1],
+          preview: normalizedPreview,
+          base64: normalizedBase64,
           status: 'idle'
         });
       } else {
